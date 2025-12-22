@@ -4,7 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
+from typing import Literal, Optional
 from services.jobsglobal import fetch_jobs_by_group_id
+from services.job_groups import get_job_groups, get_summary_stats
 from services.mapper import map_api_response_to_job, map_api_responses_to_jobs
 from services.supabase_client import upsert_job, upsert_jobs
 
@@ -28,6 +30,7 @@ app.add_middleware(
 
 class SyncJobsRequest(BaseModel):
     job_group_id: str
+    status: Literal["Open", "Close"] = "Open"
 
 
 class SyncJobsResponse(BaseModel):
@@ -54,11 +57,11 @@ async def sync_jobs(request: SyncJobsRequest):
         # Handle both single job and list of jobs response
         if isinstance(api_response, list):
             # Multiple jobs returned
-            mapped_jobs = map_api_responses_to_jobs(api_response)
+            mapped_jobs = map_api_responses_to_jobs(api_response, request.status)
             upserted_jobs = upsert_jobs(mapped_jobs)
         elif isinstance(api_response, dict) and "job" in api_response:
             # Single job returned
-            mapped_job = map_api_response_to_job(api_response)
+            mapped_job = map_api_response_to_job(api_response, request.status)
             upserted_job = upsert_job(mapped_job)
             upserted_jobs = [upserted_job] if upserted_job else []
         else:
@@ -85,6 +88,61 @@ async def sync_jobs(request: SyncJobsRequest):
         )
 
 
+@app.get("/api/job-groups")
+async def list_job_groups(
+    status: Optional[str] = None,
+    sort_by: Literal["date_created", "status"] = "date_created",
+    sort_order: Literal["asc", "desc"] = "desc"
+):
+    """
+    Fetches unique job groups with their status from Supabase.
+    Supports filtering by status and sorting by date_created or status.
+    """
+    try:
+        job_groups = get_job_groups(
+            status_filter=status,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+        return {
+            "success": True,
+            "job_groups": job_groups,
+            "total": len(job_groups)
+        }
+    except Exception as e:
+        print("=" * 50)
+        print("ERROR IN list_job_groups:")
+        traceback.print_exc()
+        print("=" * 50)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching job groups: {str(e)}"
+        )
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """
+    Returns summary statistics for jobs and trips.
+    """
+    try:
+        stats = get_summary_stats()
+        return {
+            "success": True,
+            **stats
+        }
+    except Exception as e:
+        print("=" * 50)
+        print("ERROR IN get_stats:")
+        traceback.print_exc()
+        print("=" * 50)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching stats: {str(e)}"
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

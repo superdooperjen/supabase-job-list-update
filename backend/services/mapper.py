@@ -73,9 +73,10 @@ def parse_date(date_string: str | None) -> str | None:
         return None
 
 
-def map_api_response_to_job(api_response: dict) -> dict:
+def map_api_response_to_job(api_response: dict, status: str = "Open") -> dict:
     """
     Maps a single API response to the Supabase job_list schema.
+    Status is now provided by the user, not from the API.
     """
     job = api_response.get("job", {})
     
@@ -89,7 +90,6 @@ def map_api_response_to_job(api_response: dict) -> dict:
     category = get_category_from_ids(job.get("industry_ids"))
     country = get_country_from_ids(job.get("job_destinations"))
     job_description = job.get("job_description")
-    status = job.get("status")
     date_created = parse_date(job.get("date_created"))
     
     # Build metadata JSON
@@ -119,8 +119,9 @@ def map_api_response_to_job(api_response: dict) -> dict:
     }
 
 
-def map_api_responses_to_jobs(api_responses: list[dict]) -> list[dict]:
+def map_api_responses_to_jobs(api_responses: list[dict], status: str = "Open") -> list[dict]:
     """
     Maps a list of API responses to Supabase job_list schema records.
+    Status is provided by the user for all jobs.
     """
-    return [map_api_response_to_job(response) for response in api_responses]
+    return [map_api_response_to_job(response, status) for response in api_responses]
