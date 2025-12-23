@@ -110,17 +110,19 @@ async def sync_jobs(request: SyncJobsRequest):
 async def list_job_groups(
     status: Optional[str] = None,
     sort_by: Literal["date_created", "status"] = "date_created",
-    sort_order: Literal["asc", "desc"] = "desc"
+    sort_order: Literal["asc", "desc"] = "desc",
+    search: Optional[str] = None
 ):
     """
     Fetches unique job groups with their status from Supabase.
-    Supports filtering by status and sorting by date_created or status.
+    Supports filtering by status, searching by job_group_id, and sorting.
     """
     try:
         job_groups = get_job_groups(
             status_filter=status,
             sort_by=sort_by,
-            sort_order=sort_order
+            sort_order=sort_order,
+            search=search
         )
         return {
             "success": True,
@@ -162,6 +164,7 @@ async def get_stats():
 
 class ReindexRequest(BaseModel):
     secret_code: str
+    job_group_id: Optional[str] = None  # If empty, reindex all; otherwise reindex only this job_group_id
 
 
 class ReindexResponse(BaseModel):
@@ -169,12 +172,15 @@ class ReindexResponse(BaseModel):
     message: str
     total_processed: int
     total_jobs: int
+    job_group_id: Optional[str] = None
 
 
 @app.post("/api/reindex-all", response_model=ReindexResponse)
 async def reindex_all_embeddings_endpoint(request: ReindexRequest):
     """
-    Reindexes ALL embeddings in the database.
+    Reindexes embeddings in the database.
+    If job_group_id is provided, only reindex that job group.
+    If job_group_id is empty/None, reindex all embeddings.
     Protected by SECRET_EMBEDDING_CODE.
     """
     # Validate secret code
@@ -193,12 +199,24 @@ async def reindex_all_embeddings_endpoint(request: ReindexRequest):
     try:
         # Run sync function in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, reindex_all_embeddings)
+        # Pass job_group_id to the reindex function
+        result = await loop.run_in_executor(
+            None, 
+            lambda: reindex_all_embeddings(job_group_id=request.job_group_id)
+        )
+        
+        # Build appropriate message
+        if result.get("job_group_id"):
+            message = f"Successfully reindexed {result['total_processed']} out of {result['total_jobs']} jobs for job_group_id '{result['job_group_id']}'"
+        else:
+            message = f"Successfully reindexed {result['total_processed']} out of {result['total_jobs']} jobs"
+        
         return ReindexResponse(
             success=True,
-            message=f"Successfully reindexed {result['total_processed']} out of {result['total_jobs']} jobs",
+            message=message,
             total_processed=result["total_processed"],
-            total_jobs=result["total_jobs"]
+            total_jobs=result["total_jobs"],
+            job_group_id=result.get("job_group_id")
         )
     except Exception as e:
         print("=" * 50)

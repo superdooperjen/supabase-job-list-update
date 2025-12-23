@@ -39,6 +39,7 @@ import {
   Filter,
   Key,
   Database,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -99,9 +100,11 @@ export default function Home() {
     "date_created"
   );
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   // Reindex state
   const [secretCode, setSecretCode] = useState("");
+  const [reindexJobGroupId, setReindexJobGroupId] = useState("");
   const [reindexLoading, setReindexLoading] = useState(false);
 
   // Fetch job groups
@@ -116,6 +119,9 @@ export default function Home() {
       }
       params.append("sort_by", sortBy);
       params.append("sort_order", sortOrder);
+      if (searchQuery.trim()) {
+        params.append("search", searchQuery.trim());
+      }
 
       const response = await fetch(
         `http://localhost:8000/api/job-groups?${params.toString()}`
@@ -239,7 +245,10 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ secret_code: secretCode.trim() }),
+        body: JSON.stringify({ 
+          secret_code: secretCode.trim(),
+          job_group_id: reindexJobGroupId.trim() || null
+        }),
       });
 
       if (!response.ok) {
@@ -252,6 +261,7 @@ export default function Home() {
         `${data.message}`
       );
       setSecretCode("");
+      setReindexJobGroupId("");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -528,7 +538,21 @@ export default function Home() {
             </div>
 
             {/* Filters and Sort */}
-            <div className="flex items-center gap-4 mt-4">
+            <div className="flex flex-wrap items-center gap-4 mt-4">
+              {/* Search */}
+              <div className="flex items-center gap-2">
+                <Search className="h-4 w-4 text-slate-500" />
+                <Input
+                  type="text"
+                  placeholder="Search Job Group ID"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && fetchJobGroups()}
+                  className="w-48 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 placeholder:text-slate-500"
+                />
+              </div>
+
+              {/* Status Filter */}
               <div className="flex items-center gap-2">
                 <Filter className="h-4 w-4 text-slate-500" />
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -558,6 +582,7 @@ export default function Home() {
                 </Select>
               </div>
 
+              {/* Sort */}
               <div className="flex items-center gap-2">
                 <ArrowUpDown className="h-4 w-4 text-slate-500" />
                 <Select
@@ -673,19 +698,29 @@ export default function Home() {
               </CardTitle>
             </div>
             <CardDescription className="text-amber-700 dark:text-amber-300">
-              Reindex all embeddings in the database. Requires secret code.
+              Reindex embeddings in the database. Leave Job Group ID empty to reindex all, or enter a specific ID to reindex only that group.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4">
-              <div className="relative flex-1">
-                <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-amber-500" />
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-4">
+                <div className="relative flex-1">
+                  <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-amber-500" />
+                  <Input
+                    type="password"
+                    placeholder="Enter secret code"
+                    value={secretCode}
+                    onChange={(e) => setSecretCode(e.target.value)}
+                    className="pl-10 border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 placeholder:text-amber-500/70"
+                    disabled={reindexLoading}
+                  />
+                </div>
                 <Input
-                  type="password"
-                  placeholder="Enter secret code"
-                  value={secretCode}
-                  onChange={(e) => setSecretCode(e.target.value)}
-                  className="pl-10 border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 placeholder:text-amber-500/70"
+                  type="text"
+                  placeholder="Job Group ID (optional - leave empty for all)"
+                  value={reindexJobGroupId}
+                  onChange={(e) => setReindexJobGroupId(e.target.value)}
+                  className="flex-1 border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 placeholder:text-amber-500/70"
                   disabled={reindexLoading}
                 />
               </div>
@@ -702,7 +737,7 @@ export default function Home() {
                 ) : (
                   <>
                     <Database className="mr-2 h-4 w-4" />
-                    Reindex All Embeddings
+                    {reindexJobGroupId.trim() ? `Reindex Job Group: ${reindexJobGroupId.trim()}` : "Reindex All Embeddings"}
                   </>
                 )}
               </Button>

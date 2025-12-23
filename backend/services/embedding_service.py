@@ -105,33 +105,46 @@ def rebuild_embeddings_for_jobs(job_ids: List[int]) -> int:
     return updated_count
 
 
-def reindex_all_embeddings(batch_size: int = 50) -> dict:
+def reindex_all_embeddings(batch_size: int = 50, job_group_id: str = None) -> dict:
     """
-    Rebuilds embeddings for ALL jobs in the database.
+    Rebuilds embeddings for jobs in the database.
     Processes in batches to avoid memory issues.
     
     Args:
         batch_size: Number of jobs to process in each batch
+        job_group_id: Optional. If provided, only reindex jobs with this job_group_id.
+                      If empty/None, reindex all jobs.
         
     Returns:
-        Dict with total_processed and total_jobs counts
+        Dict with total_processed, total_jobs counts, and job_group_id if filtered
     """
     db = get_supabase_client()
     
-    # Get total count first
-    count_response = db.table("job_list").select("id", count="exact").execute()
-    total_jobs = count_response.count or 0
-    
-    print(f"Starting full reindex of {total_jobs} jobs with batch size {batch_size}...")
+    # Build query based on whether job_group_id is provided
+    if job_group_id and job_group_id.strip():
+        job_group_id = job_group_id.strip()
+        count_response = db.table("job_list").select("id", count="exact").eq("job_group_id", job_group_id).execute()
+        total_jobs = count_response.count or 0
+        print(f"Starting reindex of {total_jobs} jobs for job_group_id '{job_group_id}' with batch size {batch_size}...")
+    else:
+        count_response = db.table("job_list").select("id", count="exact").execute()
+        total_jobs = count_response.count or 0
+        job_group_id = None  # Normalize empty string to None
+        print(f"Starting full reindex of {total_jobs} jobs with batch size {batch_size}...")
     
     total_processed = 0
     offset = 0
     
     while True:
-        # Fetch batch of jobs
-        response = db.table("job_list").select(
+        # Fetch batch of jobs with optional job_group_id filter
+        query = db.table("job_list").select(
             "id, job_title, job_description, status, country, category"
-        ).range(offset, offset + batch_size - 1).execute()
+        )
+        
+        if job_group_id:
+            query = query.eq("job_group_id", job_group_id)
+        
+        response = query.range(offset, offset + batch_size - 1).execute()
         
         jobs = response.data
         
@@ -171,9 +184,13 @@ def reindex_all_embeddings(batch_size: int = 50) -> dict:
         if offset >= total_jobs:
             break
     
-    print(f"Full reindex complete: {total_processed}/{total_jobs} embeddings updated")
+    if job_group_id:
+        print(f"Reindex complete for job_group_id '{job_group_id}': {total_processed}/{total_jobs} embeddings updated")
+    else:
+        print(f"Full reindex complete: {total_processed}/{total_jobs} embeddings updated")
     
     return {
         "total_processed": total_processed,
-        "total_jobs": total_jobs
+        "total_jobs": total_jobs,
+        "job_group_id": job_group_id
     }

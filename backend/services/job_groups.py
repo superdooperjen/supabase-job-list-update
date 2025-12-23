@@ -8,12 +8,13 @@ from services.supabase_client import get_supabase_client
 def get_job_groups(
     status_filter: Optional[str] = None,
     sort_by: Literal["date_created", "status"] = "date_created",
-    sort_order: Literal["asc", "desc"] = "desc"
+    sort_order: Literal["asc", "desc"] = "desc",
+    search: Optional[str] = None
 ) -> list[dict]:
     """
     Fetches unique job_group_id with their status and date_created from Supabase.
     Groups by job_group_id and returns the latest entry for each group.
-    Supports filtering by status and sorting.
+    Supports filtering by status, searching by job_group_id, and sorting.
     """
     client = get_supabase_client()
     
@@ -25,6 +26,10 @@ def get_job_groups(
     # Apply status filter if provided
     if status_filter and status_filter in ["Open", "Close"]:
         query = query.eq("status", status_filter)
+    
+    # Apply search filter for job_group_id if provided
+    if search and search.strip():
+        query = query.ilike("job_group_id", f"%{search.strip()}%")
     
     # Get all records to process
     result = query.execute()
