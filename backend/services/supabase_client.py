@@ -52,3 +52,4 @@ def upsert_jobs(jobs_data: list[dict]) -> list[dict]:
     ).execute()
     
     return result.data if result.data else []
+
