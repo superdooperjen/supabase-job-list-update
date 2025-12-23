@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Card,
   CardContent,
@@ -29,7 +29,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
-  CheckCircle,
   XCircle,
   Loader2,
   Briefcase,
@@ -39,6 +38,7 @@ import {
   ArrowUpDown,
   Filter,
 } from "lucide-react";
+import { toast } from "sonner";
 
 interface Job {
   id?: number;
@@ -80,7 +80,6 @@ export default function Home() {
   const [status, setStatus] = useState<"Open" | "Close">("Open");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<SyncResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   // Job groups state
   const [jobGroups, setJobGroups] = useState<JobGroup[]>([]);
@@ -167,12 +166,11 @@ export default function Home() {
     e.preventDefault();
 
     if (!jobGroupId.trim()) {
-      setError("Please enter a job group ID");
+      toast.error("Please enter a job group ID");
       return;
     }
 
     setLoading(true);
-    setError(null);
     setResult(null);
 
     try {
@@ -191,12 +189,13 @@ export default function Home() {
 
       const data: SyncResponse = await response.json();
       setResult(data);
+      toast.success(`${data.message} - ${data.rows_affected} row(s) affected`);
 
       // Refresh job groups and stats after successful sync
       fetchJobGroups();
       fetchStats();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      toast.error(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setLoading(false);
     }
@@ -380,24 +379,77 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        {/* Error Alert */}
-        {error && (
-          <Alert className="border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/50 text-red-800 dark:text-red-200">
-            <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {/* Success Alert */}
-        {result && result.success && (
-          <Alert className="border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-950/50 text-green-800 dark:text-green-200">
-            <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
-            <AlertTitle>Success</AlertTitle>
-            <AlertDescription>
-              {result.message} - {result.rows_affected} row(s) affected
-            </AlertDescription>
-          </Alert>
+        {/* Synced Jobs Results Table - shown after sync */}
+        {result && result.jobs.length > 0 && (
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="text-slate-900 dark:text-slate-100">
+                Synced Jobs
+              </CardTitle>
+              <CardDescription className="text-slate-600 dark:text-slate-400">
+                Jobs that were created or updated in your database
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      <TableHead className="text-slate-700 dark:text-slate-300">
+                        Job Title
+                      </TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300">
+                        Category
+                      </TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300">
+                        Country
+                      </TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300">
+                        Status
+                      </TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300">
+                        Date Created
+                      </TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300">
+                        Email
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {result.jobs.map((job, index) => (
+                      <TableRow
+                        key={job.job_post_id || index}
+                        className="border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30"
+                      >
+                        <TableCell className="font-medium text-slate-900 dark:text-slate-100">
+                          {job.job_title}
+                        </TableCell>
+                        <TableCell className="text-slate-600 dark:text-slate-300">
+                          {job.category || "-"}
+                        </TableCell>
+                        <TableCell className="text-slate-600 dark:text-slate-300">
+                          {job.country || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={job.status === "Open" ? "success" : "danger"}
+                          >
+                            {job.status || "-"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-slate-600 dark:text-slate-300">
+                          {job.date_created || "-"}
+                        </TableCell>
+                        <TableCell className="text-slate-600 dark:text-slate-300">
+                          {job.email}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Job Groups Listing */}
@@ -560,79 +612,6 @@ export default function Home() {
             )}
           </CardContent>
         </Card>
-
-        {/* Results Table */}
-        {result && result.jobs.length > 0 && (
-          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="text-slate-900 dark:text-slate-100">
-                Synced Jobs
-              </CardTitle>
-              <CardDescription className="text-slate-600 dark:text-slate-400">
-                Jobs that were created or updated in your database
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                      <TableHead className="text-slate-700 dark:text-slate-300">
-                        Job Title
-                      </TableHead>
-                      <TableHead className="text-slate-700 dark:text-slate-300">
-                        Category
-                      </TableHead>
-                      <TableHead className="text-slate-700 dark:text-slate-300">
-                        Country
-                      </TableHead>
-                      <TableHead className="text-slate-700 dark:text-slate-300">
-                        Status
-                      </TableHead>
-                      <TableHead className="text-slate-700 dark:text-slate-300">
-                        Date Created
-                      </TableHead>
-                      <TableHead className="text-slate-700 dark:text-slate-300">
-                        Email
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {result.jobs.map((job, index) => (
-                      <TableRow
-                        key={job.job_post_id || index}
-                        className="border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30"
-                      >
-                        <TableCell className="font-medium text-slate-900 dark:text-slate-100">
-                          {job.job_title}
-                        </TableCell>
-                        <TableCell className="text-slate-600 dark:text-slate-300">
-                          {job.category || "-"}
-                        </TableCell>
-                        <TableCell className="text-slate-600 dark:text-slate-300">
-                          {job.country || "-"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={job.status === "Open" ? "success" : "danger"}
-                          >
-                            {job.status || "-"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-slate-600 dark:text-slate-300">
-                          {job.date_created || "-"}
-                        </TableCell>
-                        <TableCell className="text-slate-600 dark:text-slate-300">
-                          {job.email}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </div>
   );
