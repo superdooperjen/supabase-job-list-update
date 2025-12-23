@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Literal, Optional
 from services.jobsglobal import fetch_jobs_by_group_id
 from services.job_groups import get_job_groups, get_summary_stats
-from services.mapper import map_api_response_to_job, map_api_responses_to_jobs
+from services.job_details import get_jobs_by_group_id
+from services.mapper import map_api_response_to_job, map_api_responses_to_jobs, DESTINATIONS, get_country_from_ids
 from services.supabase_client import upsert_job, upsert_jobs
 from services.embedding_service import rebuild_embeddings_for_jobs, reindex_all_embeddings
 
@@ -40,6 +41,7 @@ app.add_middleware(
 class SyncJobsRequest(BaseModel):
     job_group_id: str
     status: Literal["Open", "Close"] = "Open"
+    country: Optional[str] = None  # Country from dropdown, used if API has no country
 
 
 class SyncJobsResponse(BaseModel):
@@ -64,14 +66,42 @@ async def sync_jobs(request: SyncJobsRequest):
         # Fetch from JobsGlobal API
         api_response = await fetch_jobs_by_group_id(request.job_group_id)
         
+        # Determine country: check first job from API only (for speed)
+        api_country = None
+        if isinstance(api_response, list) and len(api_response) > 0:
+            # Check first entry only
+            first_job = api_response[0].get("job", {})
+            api_country = get_country_from_ids(first_job.get("job_destinations"))
+        elif isinstance(api_response, dict) and "job" in api_response:
+            first_job = api_response.get("job", {})
+            api_country = get_country_from_ids(first_job.get("job_destinations"))
+        
+        # Country logic:
+        # - If API country exists -> use API country, ignore dropdown
+        # - If API country empty AND dropdown has value -> use dropdown
+        # - If both empty -> warning and don't proceed
+        country_override = None
+        if api_country:
+            # Use API country, ignore dropdown
+            country_override = None  # Let mapper use API country
+        elif request.country and request.country.strip():
+            # API has no country, use dropdown
+            country_override = request.country.strip()
+        else:
+            # Both empty - return error
+            raise HTTPException(
+                status_code=400,
+                detail="No country available from API and no country selected. Please select a country from the dropdown."
+            )
+        
         # Handle both single job and list of jobs response
         if isinstance(api_response, list):
             # Multiple jobs returned
-            mapped_jobs = map_api_responses_to_jobs(api_response, request.status)
+            mapped_jobs = map_api_responses_to_jobs(api_response, request.status, country_override)
             upserted_jobs = upsert_jobs(mapped_jobs)
         elif isinstance(api_response, dict) and "job" in api_response:
             # Single job returned
-            mapped_job = map_api_response_to_job(api_response, request.status)
+            mapped_job = map_api_response_to_job(api_response, request.status, country_override)
             upserted_job = upsert_job(mapped_job)
             upserted_jobs = [upserted_job] if upserted_job else []
         else:
@@ -103,6 +133,55 @@ async def sync_jobs(request: SyncJobsRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Error syncing jobs: {str(e)}"
+        )
+
+
+@app.get("/api/jobs/{job_group_id}")
+async def get_jobs_for_group(job_group_id: str):
+    """
+    Fetches all jobs for a specific job_group_id from Supabase.
+    Used for the job count modal display.
+    """
+    try:
+        jobs = get_jobs_by_group_id(job_group_id)
+        return {
+            "success": True,
+            "jobs": jobs,
+            "total": len(jobs)
+        }
+    except Exception as e:
+        print("=" * 50)
+        print("ERROR IN get_jobs_for_group:")
+        traceback.print_exc()
+        print("=" * 50)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching jobs: {str(e)}"
+        )
+
+
+@app.get("/api/countries")
+async def list_countries():
+    """
+    Returns list of all countries from destinations lookup.
+    Used for country dropdown in frontend.
+    """
+    try:
+        # Convert destinations dict to sorted list of country names
+        countries = sorted(set(DESTINATIONS.values()))
+        return {
+            "success": True,
+            "countries": countries,
+            "total": len(countries)
+        }
+    except Exception as e:
+        print("=" * 50)
+        print("ERROR IN list_countries:")
+        traceback.print_exc()
+        print("=" * 50)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching countries: {str(e)}"
         )
 
 

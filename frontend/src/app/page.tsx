@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {
+import { 
   Select,
   SelectContent,
   SelectItem,
@@ -26,6 +26,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
@@ -40,6 +47,8 @@ import {
   Key,
   Database,
   Search,
+  Eye,
+  Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -107,6 +116,16 @@ export default function Home() {
   const [reindexJobGroupId, setReindexJobGroupId] = useState("");
   const [reindexLoading, setReindexLoading] = useState(false);
 
+  // Country dropdown state
+  const [countries, setCountries] = useState<string[]>([]);
+  const [selectedCountry, setSelectedCountry] = useState<string>("");
+
+  // Modal state for job count
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalJobs, setModalJobs] = useState<Job[]>([]);
+  const [modalGroupId, setModalGroupId] = useState<string>("");
+  const [modalLoading, setModalLoading] = useState(false);
+
   // Fetch job groups
   const fetchJobGroups = async () => {
     setJobGroupsLoading(true);
@@ -162,10 +181,48 @@ export default function Home() {
     }
   };
 
+  // Fetch countries for dropdown
+  const fetchCountries = async () => {
+    try {
+      const response = await fetch("http://localhost:8000/api/countries");
+      if (!response.ok) {
+        throw new Error("Failed to fetch countries");
+      }
+      const data = await response.json();
+      setCountries(data.countries);
+    } catch (err) {
+      console.error("Error fetching countries:", err);
+    }
+  };
+
+  // Open modal with jobs for a specific job_group_id
+  const openJobsModal = async (groupId: string) => {
+    setModalOpen(true);
+    setModalGroupId(groupId);
+    setModalLoading(true);
+    setModalJobs([]);
+
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/jobs/${encodeURIComponent(groupId)}`
+      );
+      if (!response.ok) {
+        throw new Error("Failed to fetch jobs");
+      }
+      const data = await response.json();
+      setModalJobs(data.jobs);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load jobs");
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
   // Initial fetch
   useEffect(() => {
     fetchJobGroups();
     fetchStats();
+    fetchCountries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -192,7 +249,11 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ job_group_id: jobGroupId.trim(), status }),
+        body: JSON.stringify({ 
+          job_group_id: jobGroupId.trim(), 
+          status,
+          country: selectedCountry || null 
+        }),
       });
 
       if (!response.ok) {
@@ -420,6 +481,42 @@ export default function Home() {
                   </SelectItem>
                 </SelectContent>
               </Select>
+              <div className="flex items-center gap-1">
+                <Select
+                  key={selectedCountry || "empty"}
+                  value={selectedCountry || undefined}
+                  onValueChange={(value: string) => setSelectedCountry(value)}
+                  disabled={loading}
+                >
+                  <SelectTrigger className="w-44 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100">
+                    <Globe className="h-4 w-4 mr-2 text-slate-500" />
+                    <SelectValue placeholder="Country" />
+                  </SelectTrigger>
+                  <SelectContent className="border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 max-h-60">
+                    {countries.map((country) => (
+                      <SelectItem
+                        key={country}
+                        value={country}
+                        className="text-slate-900 dark:text-slate-100 focus:bg-slate-100 dark:focus:bg-slate-700"
+                      >
+                        {country}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedCountry && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedCountry("")}
+                    className="px-2 text-slate-500 hover:text-slate-700"
+                    disabled={loading}
+                  >
+                    <XCircle className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
               <Button
                 type="submit"
                 disabled={loading}
@@ -677,7 +774,13 @@ export default function Home() {
                           {group.date_created || "-"}
                         </TableCell>
                         <TableCell className="text-slate-600 dark:text-slate-300">
-                          {group.job_count}
+                          <button
+                            onClick={() => openJobsModal(group.job_group_id)}
+                            className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline transition-colors"
+                          >
+                            <span>{group.job_count}</span>
+                            <Eye className="h-4 w-4" />
+                          </button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -745,6 +848,89 @@ export default function Home() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Job Count Modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="!w-[80vw] !max-w-7xl max-h-[85vh] flex flex-col border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="text-slate-900 dark:text-slate-100">
+              Jobs for Group: {modalGroupId}
+            </DialogTitle>
+            <DialogDescription className="text-slate-600 dark:text-slate-400">
+              {modalJobs.length} job(s) in this group
+            </DialogDescription>
+          </DialogHeader>
+          
+          {/* Scrollable content area - scrollbars are on this container */}
+          <div className="flex-1 overflow-auto min-h-0 rounded-lg border border-slate-200 dark:border-slate-800">
+            {modalLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+              </div>
+            ) : modalJobs.length === 0 ? (
+              <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                No jobs found for this group
+              </div>
+            ) : (
+              <table className="w-full caption-bottom text-sm">
+                <thead className="[&_tr]:border-b">
+                  <tr className="border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b transition-colors">
+                    <th className="text-slate-700 dark:text-slate-300 whitespace-nowrap h-10 px-2 text-left align-middle font-medium">
+                      Job Title
+                    </th>
+                    <th className="text-slate-700 dark:text-slate-300 whitespace-nowrap h-10 px-2 text-left align-middle font-medium">
+                      Category
+                    </th>
+                    <th className="text-slate-700 dark:text-slate-300 whitespace-nowrap h-10 px-2 text-left align-middle font-medium">
+                      Country
+                    </th>
+                    <th className="text-slate-700 dark:text-slate-300 whitespace-nowrap h-10 px-2 text-left align-middle font-medium">
+                      Status
+                    </th>
+                    <th className="text-slate-700 dark:text-slate-300 whitespace-nowrap h-10 px-2 text-left align-middle font-medium">
+                      Date Created
+                    </th>
+                    <th className="text-slate-700 dark:text-slate-300 whitespace-nowrap h-10 px-2 text-left align-middle font-medium">
+                      Email
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="[&_tr:last-child]:border-0">
+                  {modalJobs.map((job, index) => (
+                    <tr
+                      key={job.job_post_id || index}
+                      className="border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 border-b transition-colors"
+                    >
+                      <td className="font-medium text-slate-900 dark:text-slate-100 p-2 align-middle whitespace-nowrap">
+                        {job.job_title}
+                      </td>
+                      <td className="text-slate-600 dark:text-slate-300 p-2 align-middle whitespace-nowrap">
+                        {job.category || "-"}
+                      </td>
+                      <td className="text-slate-600 dark:text-slate-300 p-2 align-middle whitespace-nowrap">
+                        {job.country || "-"}
+                      </td>
+                      <td className="p-2 align-middle">
+                        <Badge
+                          variant={job.status === "Open" ? "success" : "danger"}
+                        >
+                          {job.status || "-"}
+                        </Badge>
+                      </td>
+                      <td className="text-slate-600 dark:text-slate-300 whitespace-nowrap p-2 align-middle">
+                        {job.date_created || "-"}
+                      </td>
+                      <td className="text-slate-600 dark:text-slate-300 p-2 align-middle whitespace-nowrap">
+                        {job.email}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
