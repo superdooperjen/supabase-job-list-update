@@ -37,6 +37,8 @@ import {
   RefreshCw,
   ArrowUpDown,
   Filter,
+  Key,
+  Database,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -59,6 +61,7 @@ interface SyncResponse {
   message: string;
   rows_affected: number;
   jobs: Job[];
+  embeddings_updated?: number;
 }
 
 interface JobGroup {
@@ -96,6 +99,10 @@ export default function Home() {
     "date_created"
   );
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // Reindex state
+  const [secretCode, setSecretCode] = useState("");
+  const [reindexLoading, setReindexLoading] = useState(false);
 
   // Fetch job groups
   const fetchJobGroups = async () => {
@@ -189,7 +196,15 @@ export default function Home() {
 
       const data: SyncResponse = await response.json();
       setResult(data);
-      toast.success(`${data.message} - ${data.rows_affected} row(s) affected`);
+      
+      // Show different toast message based on status and embeddings
+      if (status === "Open" && data.embeddings_updated && data.embeddings_updated > 0) {
+        toast.success(
+          `${data.message} - ${data.rows_affected} row(s) affected, ${data.embeddings_updated} embedding(s) rebuilt`
+        );
+      } else {
+        toast.success(`${data.message} - ${data.rows_affected} row(s) affected`);
+      }
 
       // Refresh job groups and stats after successful sync
       fetchJobGroups();
@@ -208,6 +223,40 @@ export default function Home() {
 
   const toggleSortOrder = () => {
     setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+  };
+
+  const handleReindexAll = async () => {
+    if (!secretCode.trim()) {
+      toast.error("Please enter the secret code");
+      return;
+    }
+
+    setReindexLoading(true);
+
+    try {
+      const response = await fetch("http://localhost:8000/api/reindex-all", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ secret_code: secretCode.trim() }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to reindex embeddings");
+      }
+
+      const data = await response.json();
+      toast.success(
+        `${data.message}`
+      );
+      setSecretCode("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      setReindexLoading(false);
+    }
   };
 
   return (
@@ -378,6 +427,7 @@ export default function Home() {
             </form>
           </CardContent>
         </Card>
+
 
         {/* Synced Jobs Results Table - shown after sync */}
         {result && result.jobs.length > 0 && (
@@ -610,6 +660,53 @@ export default function Home() {
                 </Table>
               </div>
             )}
+          </CardContent>
+        </Card>
+        
+        {/* Admin Tools - Reindex All */}
+        <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 backdrop-blur-sm">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              <CardTitle className="text-amber-900 dark:text-amber-100">
+                Admin Tools
+              </CardTitle>
+            </div>
+            <CardDescription className="text-amber-700 dark:text-amber-300">
+              Reindex all embeddings in the database. Requires secret code.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-4">
+              <div className="relative flex-1">
+                <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-amber-500" />
+                <Input
+                  type="password"
+                  placeholder="Enter secret code"
+                  value={secretCode}
+                  onChange={(e) => setSecretCode(e.target.value)}
+                  className="pl-10 border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 placeholder:text-amber-500/70"
+                  disabled={reindexLoading}
+                />
+              </div>
+              <Button
+                onClick={handleReindexAll}
+                disabled={reindexLoading}
+                className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700"
+              >
+                {reindexLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Reindexing...
+                  </>
+                ) : (
+                  <>
+                    <Database className="mr-2 h-4 w-4" />
+                    Reindex All Embeddings
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

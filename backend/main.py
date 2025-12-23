@@ -1,16 +1,25 @@
 import traceback
+import os
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from pathlib import Path
 
 from typing import Literal, Optional
 from services.jobsglobal import fetch_jobs_by_group_id
 from services.job_groups import get_job_groups, get_summary_stats
 from services.mapper import map_api_response_to_job, map_api_responses_to_jobs
 from services.supabase_client import upsert_job, upsert_jobs
+from services.embedding_service import rebuild_embeddings_for_jobs, reindex_all_embeddings
 
-load_dotenv()
+# Load .env from project root
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
+
+SECRET_EMBEDDING_CODE = os.getenv("SECRET_EMBEDDING_CODE", "")
 
 app = FastAPI(
     title="Job List Update API",
@@ -38,6 +47,7 @@ class SyncJobsResponse(BaseModel):
     message: str
     rows_affected: int
     jobs: list[dict]
+    embeddings_updated: int = 0
 
 
 @app.get("/")
@@ -70,11 +80,19 @@ async def sync_jobs(request: SyncJobsRequest):
                 detail="Invalid API response format"
             )
         
+        # Rebuild embeddings only when status is "Open"
+        embeddings_updated = 0
+        if request.status == "Open" and upserted_jobs:
+            job_ids = [job.get("id") for job in upserted_jobs if job.get("id")]
+            if job_ids:
+                embeddings_updated = rebuild_embeddings_for_jobs(job_ids)
+        
         return SyncJobsResponse(
             success=True,
             message=f"Successfully synced {len(upserted_jobs)} job(s)",
             rows_affected=len(upserted_jobs),
-            jobs=upserted_jobs
+            jobs=upserted_jobs,
+            embeddings_updated=embeddings_updated
         )
         
     except Exception as e:
@@ -139,6 +157,57 @@ async def get_stats():
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching stats: {str(e)}"
+        )
+
+
+class ReindexRequest(BaseModel):
+    secret_code: str
+
+
+class ReindexResponse(BaseModel):
+    success: bool
+    message: str
+    total_processed: int
+    total_jobs: int
+
+
+@app.post("/api/reindex-all", response_model=ReindexResponse)
+async def reindex_all_embeddings_endpoint(request: ReindexRequest):
+    """
+    Reindexes ALL embeddings in the database.
+    Protected by SECRET_EMBEDDING_CODE.
+    """
+    # Validate secret code
+    if not SECRET_EMBEDDING_CODE:
+        raise HTTPException(
+            status_code=500,
+            detail="SECRET_EMBEDDING_CODE not configured on server"
+        )
+    
+    if request.secret_code != SECRET_EMBEDDING_CODE:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid secret code"
+        )
+    
+    try:
+        # Run sync function in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, reindex_all_embeddings)
+        return ReindexResponse(
+            success=True,
+            message=f"Successfully reindexed {result['total_processed']} out of {result['total_jobs']} jobs",
+            total_processed=result["total_processed"],
+            total_jobs=result["total_jobs"]
+        )
+    except Exception as e:
+        print("=" * 50)
+        print("ERROR IN reindex_all_embeddings_endpoint:")
+        traceback.print_exc()
+        print("=" * 50)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error reindexing embeddings: {str(e)}"
         )
 
 
