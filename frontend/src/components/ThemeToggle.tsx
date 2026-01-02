@@ -12,12 +12,12 @@ export function ThemeToggle() {
       variant="outline"
       size="icon"
       onClick={toggleTheme}
-      className="border-slate-700 bg-slate-800/50 hover:bg-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:bg-slate-700 light:border-slate-300 light:bg-white light:hover:bg-slate-100"
+      className="border-stone-700 bg-stone-200/50 hover:bg-stone-500 dark:border-stone-700 dark:bg-stone-800/50 dark:hover:bg-stone-700 light:border-stone-300 light:bg-white light:hover:bg-stone-100"
     >
       {theme === "dark" ? (
         <Sun className="h-5 w-5 text-yellow-400" />
       ) : (
-        <Moon className="h-5 w-5 text-slate-600" />
+        <Moon className="h-5 w-5 text-stone-600" />
       )}
       <span className="sr-only">Toggle theme</span>
     </Button>

@@ -7,7 +7,6 @@ load_dotenv()
 JOBSGLOBAL_API_URL = os.getenv("JOBSGLOBAL_API_URL", "https://jobsglobal.com/apil/applicants_extended/ws/getAdvertisementJson")
 JOBSGLOBAL_BEARER_TOKEN = os.getenv("JOBSGLOBAL_BEARER_TOKEN", "")
 
-
 async def fetch_jobs_by_group_id(job_group_id: str) -> dict:
     """
     Fetches job data from JobsGlobal API by job_group_id.
